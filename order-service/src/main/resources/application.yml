@@ -39,3 +39,10 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
+
+logging:
+  structured:
+    format:
+      # JSON logs (Elastic Common Schema); MDC values such as requestId are included.
+      # Set LOG_FORMAT= (empty) for plain-text logs during local development.
+      console: ${LOG_FORMAT:ecs}

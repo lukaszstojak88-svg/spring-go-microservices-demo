@@ -111,6 +111,8 @@ Failure mapping:
 | Product unavailable | `422 PRODUCT_UNAVAILABLE` | `422` |
 | Mixed currencies | `422 CURRENCY_MISMATCH` | `422` |
 | Product Service down / timeout / 5xx | `503 PRODUCT_SERVICE_UNAVAILABLE` | `503` |
+| Product Service 4xx / invalid response (contract error, logged as ERROR) | `503 PRODUCT_SERVICE_UNAVAILABLE` | `503` |
+| Duplicate `productId` in request | `400 VALIDATION_ERROR` (rejected, not merged) | `400` |
 | Order Service down / timeout | -- | `503`/`504` |
 
 ### 4.2 Get order with aggregation
