@@ -73,11 +73,10 @@ Order Service → BFF. MongoDB is never published to the host.
 
 | URL | Description |
 |---|---|
-| `http://localhost:8080/health` | BFF liveness |
+| `http://localhost:8080/health` | BFF liveness (does not call downstream services) |
+| `http://localhost:8080/ready` | BFF readiness: `200` only when Product and Order Service are ready |
 | `http://localhost:8081/actuator/health/readiness` | Product Service readiness (debug profile) |
 | `http://localhost:8082/actuator/health/readiness` | Order Service readiness (debug profile) |
-
-BFF readiness (`/ready`) – TODO (later stage).
 
 ## Tests
 
@@ -99,5 +98,12 @@ go test ./...
 
 ## API
 
-TODO (later stages): endpoint descriptions and example `curl` commands
-through the BFF.
+The BFF is the only public API. Its contract is described in
+[`docs/bff-api.md`](docs/bff-api.md) (products so far; orders in a later stage).
+
+```bash
+curl -s -X POST http://localhost:8080/api/products \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Mechanical Keyboard","price":{"amount":"349.99","currency":"PLN"},"available":true}'
+curl -s 'http://localhost:8080/api/products?page=0&size=20&sort=price,asc'
+```

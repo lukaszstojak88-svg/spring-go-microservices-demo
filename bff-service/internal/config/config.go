@@ -7,7 +7,17 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+)
+
+// Environment variable names.
+const (
+	EnvPort              = "BFF_PORT"
+	EnvProductServiceURL = "PRODUCT_SERVICE_URL"
+	EnvOrderServiceURL   = "ORDER_SERVICE_URL"
+	EnvProductTimeout    = "PRODUCT_CLIENT_TIMEOUT"
+	EnvOrderTimeout      = "ORDER_CLIENT_TIMEOUT"
 )
 
 // Config holds the runtime configuration of the BFF service.
@@ -20,7 +30,8 @@ type Config struct {
 }
 
 const (
-	defaultPort           = 8080
+	// DefaultPort is used when BFF_PORT is not set.
+	DefaultPort           = 8080
 	defaultProductTimeout = 3 * time.Second
 	defaultOrderTimeout   = 5 * time.Second
 )
@@ -35,19 +46,17 @@ func Load() (Config, error) {
 func LoadFrom(getenv func(string) string) (Config, error) {
 	var errs []error
 
-	port, err := intOr(getenv("PORT"), defaultPort)
-	if err != nil || port < 1 || port > 65535 {
-		errs = append(errs, fmt.Errorf("PORT: invalid port %q", getenv("PORT")))
-	}
-
-	productURL, err := requiredURL(getenv, "PRODUCT_SERVICE_URL")
-	errs = appendIf(errs, err)
-	orderURL, err := requiredURL(getenv, "ORDER_SERVICE_URL")
+	port, err := PortFrom(getenv)
 	errs = appendIf(errs, err)
 
-	productTimeout, err := durationOr(getenv, "PRODUCT_SERVICE_TIMEOUT", defaultProductTimeout)
+	productURL, err := requiredURL(getenv, EnvProductServiceURL)
 	errs = appendIf(errs, err)
-	orderTimeout, err := durationOr(getenv, "ORDER_SERVICE_TIMEOUT", defaultOrderTimeout)
+	orderURL, err := requiredURL(getenv, EnvOrderServiceURL)
+	errs = appendIf(errs, err)
+
+	productTimeout, err := durationOr(getenv, EnvProductTimeout, defaultProductTimeout)
+	errs = appendIf(errs, err)
+	orderTimeout, err := durationOr(getenv, EnvOrderTimeout, defaultOrderTimeout)
 	errs = appendIf(errs, err)
 
 	if len(errs) > 0 {
@@ -62,6 +71,19 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	}, nil
 }
 
+// PortFrom reads only the listening port; the -healthcheck mode needs nothing else.
+func PortFrom(getenv func(string) string) (int, error) {
+	raw := getenv(EnvPort)
+	if raw == "" {
+		return DefaultPort, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("%s: invalid port %q", EnvPort, raw)
+	}
+	return port, nil
+}
+
 func appendIf(errs []error, err error) []error {
 	if err != nil {
 		return append(errs, err)
@@ -69,13 +91,8 @@ func appendIf(errs []error, err error) []error {
 	return errs
 }
 
-func intOr(raw string, fallback int) (int, error) {
-	if raw == "" {
-		return fallback, nil
-	}
-	return strconv.Atoi(raw)
-}
-
+// requiredURL validates the downstream base URL and strips a trailing slash so that
+// paths can be appended safely.
 func requiredURL(getenv func(string) string, key string) (string, error) {
 	raw := getenv(key)
 	if raw == "" {
@@ -85,7 +102,7 @@ func requiredURL(getenv func(string) string, key string) (string, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", fmt.Errorf("%s: invalid URL %q", key, raw)
 	}
-	return raw, nil
+	return strings.TrimRight(raw, "/"), nil
 }
 
 func durationOr(getenv func(string) string, key string, fallback time.Duration) (time.Duration, error) {
