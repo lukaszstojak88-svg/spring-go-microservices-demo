@@ -12,6 +12,9 @@ spring:
       # Connects ONLY to orders_db with the order_user credentials (no default with a password).
       uri: ${MONGODB_URI}
   jackson:
+    deserialization:
+      # Reject 1.5 for an integer field instead of silently truncating it to 1.
+      accept-float-as-int: false
     serialization:
       write-dates-as-timestamps: false
     time-zone: UTC
