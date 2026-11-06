@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: product-service
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  data:
+    mongodb:
+      # Connects ONLY to products_db with the product_user credentials (no default with a password).
+      uri: ${MONGODB_URI}
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Readiness = application state + own MongoDB only.
+        readiness:
+          include: readinessState,mongo
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs

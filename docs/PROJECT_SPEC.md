@@ -149,7 +149,9 @@ required fields). Business validation belongs to the owning service.
     URLs.
 -   Set explicit connection and read/request timeouts in every HTTP
     client (BFF and Order Service).
--   Do not retry non-idempotent requests automatically.
+-   Do not retry requests automatically. In particular, never retry
+    non-idempotent requests (`POST /api/orders`) without an idempotency
+    mechanism, which is out of scope (see 5.4).
 -   Do not introduce Kafka, RabbitMQ, gRPC, or another communication
     mechanism. Do not introduce distributed transactions, sagas, or an
     outbox; consistency between services is eventual and limited as
@@ -199,6 +201,16 @@ no update or delete operation.
     Java and Go. Use `BigDecimal` in Java (stored as `Decimal128` in
     MongoDB) and keep the value as a string (or a decimal type) in Go;
     never use `float64` for money.
+-   Money scale: `currency` must be a valid ISO-4217 code; the scale is
+    the currency's default fraction digits (2 for `PLN`). A price with
+    more fraction digits than allowed is rejected with `400
+    VALIDATION_ERROR`, never rounded silently. Accepted values are
+    normalized to the currency scale (`"20"` → `"20.00"`). Totals are
+    computed exactly (`unitPrice × quantity`, integer quantity); any
+    unexpected rounding must fail (`RoundingMode.UNNECESSARY`). Details:
+    `docs/architecture.md` section 9.1.
+-   The BFF performs no arithmetic on money; it passes decimal strings
+    through and only checks their shape.
 -   Timestamps are ISO-8601 in UTC (for example `2026-01-15T10:30:00Z`).
 -   Identifiers are opaque strings.
 -   The representation must be consistent across all three services and
@@ -315,12 +327,29 @@ Order creation rules (enforced by the Order Service):
 The BFF contract is a client-facing contract and **may differ** from the
 service contracts (for example, price as `{ "amount": "349.99",
 "currency": "PLN" }`). The BFF contract is documented separately from the
-Java service contracts. `GET /api/orders/{id}` returns the order snapshot
-plus, per item, a `currentProduct` object (current name, price,
-availability) fetched from the Product Service. If the Product Service
-call fails, the BFF returns the order with `currentProduct: null` and a
-`warnings` entry instead of failing the whole response. If the Order
-Service call fails, the BFF returns an error.
+Java service contracts. `GET /api/orders/{id}` returns, per item, two
+separate objects:
+
+-   `productSnapshot` -- the immutable product data stored in the order
+    (from the Order Service);
+-   `currentProduct` -- current name, price, and availability fetched
+    from the Product Service, plus `currentProductStatus` (`OK`,
+    `NOT_FOUND`, `UNKNOWN`).
+
+The BFF must never overwrite or merge the snapshot with current product
+data. Response rules (primary source: Order Service; supplementary
+source: Product Service):
+
+-   Order Service unreachable, 5xx, or timeout → error (`503`/`504`).
+-   Order Service `404` → `404 NOT_FOUND`.
+-   Order Service OK, Product Service unreachable/timeout/5xx → `200`
+    with `currentProduct: null`, `currentProductStatus: "UNKNOWN"` for
+    all items and a `warnings` entry `PRODUCT_DATA_UNAVAILABLE`.
+-   Order Service OK, a single product missing → `200`; that item has
+    `currentProduct: null`, `currentProductStatus: "NOT_FOUND"` and a
+    `warnings` entry `PRODUCT_NOT_FOUND` with its `productId`.
+
+The full table is in `docs/architecture.md` section 4.2.
 
 ### 5.4 Consistency model
 
@@ -330,8 +359,10 @@ Service call fails, the BFF returns an error.
     consistent with what was verified.
 -   Stock is **not reserved**. `available` is a flag, not an inventory
     counter. Inventory management is out of scope.
--   `POST /api/orders` is not idempotent. An `Idempotency-Key` header is a
-    possible future extension and is out of scope.
+-   `POST /api/orders` is not idempotent. A client retry after a timeout
+    may create a duplicate order; this is a documented limitation. An
+    `Idempotency-Key` header is a possible future extension and is out of
+    scope.
 
 ### 5.5 Health, readiness, and documentation
 
@@ -457,7 +488,10 @@ Required test categories (for each Java service):
     including missing ids.
 -   Order Service: at least successful order creation with snapshot,
     validation failure, missing order, cancellation, invalid cancellation
-    (conflict), and mapped Product Service errors. The Product Service is
+    (conflict), and mapped Product Service errors, including Product
+    Service not responding (timeout) and unreachable during order
+    creation → `503 PRODUCT_SERVICE_UNAVAILABLE` with **no order
+    persisted**. The Product Service is
     replaced by a stub HTTP server (for example MockWebServer or
     WireMock) or a mocked bean; Order Service tests must not require a
     running Product Service.
@@ -534,8 +568,11 @@ Required tests:
 -   Handler tests for invalid input.
 -   Handler tests for downstream errors (404, 4xx, 5xx, unreachable).
 -   Client tests for both clients using `httptest.Server`.
--   Aggregation tests: full success, Product Service failure during
-    order aggregation (degraded response), Order Service failure.
+-   Aggregation tests: full success; Product Service failure (5xx,
+    unreachable, and not responding/timeout) during order read
+    (degraded response); single missing product (`NOT_FOUND`); Order
+    Service failure (5xx, unreachable, timeout, `404`); the snapshot is
+    returned unchanged in every case.
 -   Timeout, context cancellation, and connection failure handling
     tests where practical.
 -   Readiness tests (both downstream healthy, one unhealthy).
@@ -562,7 +599,10 @@ Requirements:
 -   Do not bake secrets into images.
 -   Configure services through environment variables.
 -   Run **one** MongoDB instance with a named volume for data
-    persistence. Each Java service connects to its own database only.
+    persistence and authentication enabled. Each Java service connects
+    to its own database only, using its own database user
+    (`product_user` with `readWrite` on `products_db` only, `order_user`
+    with `readWrite` on `orders_db` only), created by the init script.
 -   Put services on a clearly named private Compose network.
 -   Publish only the ports needed for local development: the BFF port by
     default. Product Service and Order Service ports may be published
@@ -588,7 +628,9 @@ Requirements:
 Provide `.env.example` with documented, non-secret development defaults,
 such as:
 
--   MongoDB connection settings
+-   MongoDB connection settings, root credentials for administration,
+    and per-service database users and passwords (development values
+    only)
 -   `PRODUCT_DB_NAME` (`products_db`) and `ORDER_DB_NAME` (`orders_db`)
 -   Product Service, Order Service, and BFF ports
 -   `PRODUCT_SERVICE_URL` and `ORDER_SERVICE_URL` (as seen from the

@@ -1,0 +1,20 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Java / Maven
+target/
+
+# Go
+bff-service/bin/
+*.exe
+*.test
+*.out
+
+# Local environment (copy from .env.example)
+.env
+
+# OS
+.DS_Store
+Thumbs.db

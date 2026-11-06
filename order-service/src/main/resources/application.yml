@@ -1,0 +1,41 @@
+server:
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+
+spring:
+  application:
+    name: order-service
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  data:
+    mongodb:
+      # Connects ONLY to orders_db with the order_user credentials (no default with a password).
+      uri: ${MONGODB_URI}
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# Product Service REST client settings (the client itself is implemented in a later stage).
+product-service:
+  base-url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+  connect-timeout: ${PRODUCT_CLIENT_CONNECT_TIMEOUT:2s}
+  read-timeout: ${PRODUCT_CLIENT_READ_TIMEOUT:3s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Readiness = application state + own MongoDB only; never the Product Service (D7).
+        readiness:
+          include: readinessState,mongo
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
