@@ -54,7 +54,7 @@ zgłoś to **przed implementacją**, zaproponuj aktualizację dokumentów i pocz
 
 ## Komendy
 
-Uzupełniać w miarę implementacji etapów (stan: szkielet – serwisy startują, brak endpointów domenowych).
+Uzupełniać w miarę implementacji etapów (stan: etapy 1–7 gotowe – Product, Order i BFF z pełnym API).
 
 ```bash
 # Cały stack (bez .env działają wartości domyślne z docker-compose.yml)
@@ -72,9 +72,37 @@ mvn verify                   # + integracyjne *IT z Testcontainers (wymaga Docke
 gofmt -l .
 go vet ./...
 go test ./...
+# -race wymaga cgo/gcc, którego lokalnie nie ma – uruchamiaj w kontenerze (Git Bash):
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src:ro" -w /src -e GOFLAGS=-buildvcs=false \
+  golang:1.27.3 go test -race -count=1 ./...
 ```
 
 Uwaga: google-java-format 1.37.0 nie działa ze spotless-maven-plugin 3.11.0 – używamy 1.36.1.
+
+### Smoke testy na izolowanym stacku
+
+Smoke/e2e testy tworzą dane, których nie da się usunąć przez API (zamówienia), więc uruchamiaj je
+na osobnym projekcie Compose z własnym wolumenem i siecią. Sam `-p` nie wystarcza: nazwy wolumenu
+(`spring-go-demo-mongo-data`) i sieci (`spring-go-demo-backend`) są w `docker-compose.yml` jawne,
+więc bez override'u smoke test użyłby danych dev, a `down -v` by je skasował.
+
+```bash
+# W katalogu głównym repo (Git Bash); stack dev musi być zatrzymany (wspólny port 8080).
+cat > /tmp/smoke-override.yml <<'EOF'
+networks:
+  backend:
+    name: bff-smoke-backend
+volumes:
+  mongo-data:
+    name: bff-smoke-mongo-data
+EOF
+P="docker compose -p bff-smoke -f docker-compose.yml -f $(cygpath -w /tmp/smoke-override.yml)"
+$P up --build -d --wait      # testy przez http://localhost:8080
+$P down -v                   # usuwa tylko bff-smoke-mongo-data
+docker volume ls | grep mongo-data   # spring-go-demo-mongo-data musi zostać
+```
+
+Nigdy nie uruchamiaj `docker compose down -v` na projekcie dev bez zgody.
 
 ## Sposób pracy
 
