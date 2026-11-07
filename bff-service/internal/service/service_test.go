@@ -63,12 +63,12 @@ var keyboard = model.ServiceProduct{
 	Available: true, CreatedAt: "2026-01-15T10:30:00Z", UpdatedAt: "2026-01-15T10:31:00.123Z",
 }
 
-func TestToClientProduct_MovesPriceIntoMoneyWithoutChangingValues(t *testing.T) {
+func TestToClientProduct_CopiesAllFieldsUnchanged(t *testing.T) {
 	got := ToClientProduct(keyboard)
 
 	want := model.Product{
 		ID: "p1", Name: "Mechanical Keyboard", Description: ptr("Compact"),
-		Price:     model.Money{Amount: "349.99", Currency: "PLN"},
+		Price: "349.99", Currency: "PLN",
 		Available: true, CreatedAt: "2026-01-15T10:30:00Z", UpdatedAt: "2026-01-15T10:31:00.123Z",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -81,7 +81,7 @@ func TestToClientProduct_KeepsAmountStringExactly(t *testing.T) {
 	for _, amount := range []string{"0.10", "20.00", "1500", "12345678901234567.89", "0.30"} {
 		p := keyboard
 		p.Price = amount
-		if got := ToClientProduct(p).Price.Amount; got != amount {
+		if got := ToClientProduct(p).Price; got != amount {
 			t.Errorf("amount %q became %q", amount, got)
 		}
 	}
@@ -89,9 +89,7 @@ func TestToClientProduct_KeepsAmountStringExactly(t *testing.T) {
 
 func TestToServiceWrite(t *testing.T) {
 	got := ToServiceWrite(model.ProductWrite{
-		Name: ptr("A"), Description: ptr("d"),
-		Price:     &model.MoneyInput{Amount: ptr("20"), Currency: ptr("PLN")},
-		Available: ptr(false),
+		Name: ptr("A"), Description: ptr("d"), Price: ptr("20"), Currency: ptr("PLN"), Available: ptr(false),
 	})
 	want := model.ServiceProductWrite{
 		Name: ptr("A"), Description: ptr("d"), Price: ptr("20"), Currency: ptr("PLN"), Available: ptr(false),
@@ -122,7 +120,7 @@ func TestList_ForwardsOnlyPagingParamsAndMapsPage(t *testing.T) {
 		t.Errorf("forwarded query = %v", api.gotQuery)
 	}
 	if page.Page != 2 || page.Size != 10 || page.TotalElements != 21 || page.TotalPages != 3 ||
-		len(page.Content) != 1 || page.Content[0].Price.Amount != "349.99" {
+		len(page.Content) != 1 || page.Content[0].Price != "349.99" || page.Content[0].Currency != "PLN" {
 		t.Errorf("unexpected page: %+v", page)
 	}
 }
@@ -140,7 +138,7 @@ func TestList_EmptyContentIsEmptyArray(t *testing.T) {
 func TestCreateAndUpdate_TransformRequest(t *testing.T) {
 	api := &fakeProductAPI{product: keyboard}
 	svc := NewProducts(api, discard)
-	body := model.ProductWrite{Name: ptr("A"), Price: &model.MoneyInput{Amount: ptr("1.00"), Currency: ptr("EUR")}}
+	body := model.ProductWrite{Name: ptr("A"), Price: ptr("1.00"), Currency: ptr("EUR")}
 
 	if _, err := svc.Create(t.Context(), body); err != nil || *api.gotWrite.Price != "1.00" || *api.gotWrite.Currency != "EUR" {
 		t.Errorf("create: err = %v, write = %+v", err, api.gotWrite)
@@ -200,25 +198,32 @@ func TestErrorMapping(t *testing.T) {
 	}
 }
 
-func TestErrorMapping_RemapsValidationFieldsToClientContract(t *testing.T) {
+func TestErrorMapping_KeepsValidationFieldNames(t *testing.T) {
+	// The client contract uses the Product Service field names, so details pass through unchanged.
+	details := []model.FieldDetail{
+		{Field: "price", Message: "must have at most 2 fraction digits"},
+		{Field: "currency", Message: "must be a valid ISO-4217 code"},
+		{Field: "name", Message: "must not be blank"},
+	}
 	api := &fakeProductAPI{err: &client.Error{Service: "product-service", Kind: client.KindStatus, Status: 400,
-		Code: "VALIDATION_ERROR", Message: "Request validation failed", Details: []model.FieldDetail{
-			{Field: "price", Message: "must have at most 2 fraction digits"},
-			{Field: "currency", Message: "must be a valid ISO-4217 code"},
-			{Field: "name", Message: "must not be blank"},
-		}}}
+		Code: "VALIDATION_ERROR", Message: "Request validation failed", Details: details}}
 
 	_, err := NewProducts(api, discard).Create(t.Context(), model.ProductWrite{})
 
 	var se *Error
-	errors.As(err, &se)
-	want := []model.FieldDetail{
-		{Field: "price.amount", Message: "must have at most 2 fraction digits"},
-		{Field: "price.currency", Message: "must be a valid ISO-4217 code"},
-		{Field: "name", Message: "must not be blank"},
+	if !errors.As(err, &se) || !reflect.DeepEqual(se.Details, details) {
+		t.Errorf("err = %v, details = %+v, want %+v", err, se, details)
 	}
-	if !reflect.DeepEqual(se.Details, want) {
-		t.Errorf("details = %+v, want %+v", se.Details, want)
+}
+
+func TestErrorMapping_DetailsAreNeverNil(t *testing.T) {
+	api := &fakeProductAPI{err: &client.Error{Kind: client.KindStatus, Status: 400}}
+
+	_, err := NewProducts(api, discard).Create(t.Context(), model.ProductWrite{})
+
+	var se *Error
+	if !errors.As(err, &se) || se.Details == nil {
+		t.Errorf("details must be [] not null: %+v", se)
 	}
 }
 

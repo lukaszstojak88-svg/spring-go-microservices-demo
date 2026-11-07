@@ -81,9 +81,9 @@ func (h *productHandler) readBody(w http.ResponseWriter, r *http.Request) (model
 		writeError(w, r, h.logger, err)
 		return model.ProductWrite{}, false
 	}
-	if body.Price != nil && body.Price.Amount != nil && !decimalShape.MatchString(*body.Price.Amount) {
+	if body.Price != nil && !decimalShape.MatchString(*body.Price) {
 		writeError(w, r, h.logger, validationError("Request validation failed", model.FieldDetail{
-			Field:   "price.amount",
+			Field:   "price",
 			Message: `must be a decimal string, e.g. "349.99"`,
 		}))
 		return model.ProductWrite{}, false

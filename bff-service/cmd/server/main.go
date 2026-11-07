@@ -57,6 +57,7 @@ func run(logger *slog.Logger) error {
 
 	router := handler.NewRouter(handler.Deps{
 		Products: service.NewProducts(productClient, logger),
+		Orders:   service.NewOrders(orderClient, productClient, logger),
 		Readiness: service.NewReadiness(logger,
 			service.ReadinessCheck{Name: "productService", Check: productClient.Ready},
 			service.ReadinessCheck{Name: "orderService", Check: orderClient.Ready},

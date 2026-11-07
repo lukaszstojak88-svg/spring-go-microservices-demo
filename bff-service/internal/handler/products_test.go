@@ -171,7 +171,7 @@ func TestGetProduct_TransformsPrice(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	want := `{"id":"p1","name":"Mechanical Keyboard","description":"Compact","price":{"amount":"349.99","currency":"PLN"},` +
+	want := `{"id":"p1","name":"Mechanical Keyboard","description":"Compact","price":"349.99","currency":"PLN",` +
 		`"available":true,"createdAt":"2026-01-15T10:30:00Z","updatedAt":"2026-01-15T10:30:00Z"}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body =\n%s\nwant\n%s", got, want)
@@ -192,8 +192,8 @@ func TestListProducts_ForwardsPagingAndMapsContent(t *testing.T) {
 	}
 	body := decode(t, rec)
 	content := body["content"].([]any)
-	price := content[0].(map[string]any)["price"].(map[string]any)
-	if price["amount"] != "349.99" || price["currency"] != "PLN" || body["totalElements"] != float64(3) ||
+	first := content[0].(map[string]any)
+	if first["price"] != "349.99" || first["currency"] != "PLN" || body["totalElements"] != float64(3) ||
 		body["totalPages"] != float64(3) || body["size"] != float64(1) {
 		t.Errorf("unexpected body: %v", body)
 	}
@@ -203,12 +203,12 @@ func TestListProducts_ForwardsPagingAndMapsContent(t *testing.T) {
 	}
 }
 
-func TestCreateProduct_TranslatesRequestAndReturnsLocation(t *testing.T) {
+func TestCreateProduct_ForwardsRequestAndReturnsLocation(t *testing.T) {
 	app := newProductApp(t)
 	app.product.respond(replyJSON(201, keyboardJSON))
 
 	rec := app.do(t, http.MethodPost, "/api/products",
-		`{"name":"Mechanical Keyboard","description":"Compact","price":{"amount":"349.99","currency":"PLN"},"available":true}`)
+		`{"name":"Mechanical Keyboard","description":"Compact","price":"349.99","currency":"PLN","available":true}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
@@ -220,7 +220,7 @@ func TestCreateProduct_TranslatesRequestAndReturnsLocation(t *testing.T) {
 	if app.product.method != http.MethodPost || app.product.body != wantDownstream {
 		t.Errorf("downstream = %s %s", app.product.method, app.product.body)
 	}
-	if decode(t, rec)["price"].(map[string]any)["amount"] != "349.99" {
+	if b := decode(t, rec); b["price"] != "349.99" || b["currency"] != "PLN" {
 		t.Errorf("body = %s", rec.Body.String())
 	}
 }
@@ -230,7 +230,7 @@ func TestUpdateProduct(t *testing.T) {
 	app.product.respond(replyJSON(200, keyboardJSON))
 
 	rec := app.do(t, http.MethodPut, "/api/products/p1",
-		`{"name":"Mechanical Keyboard","price":{"amount":"329.99","currency":"PLN"},"available":false}`)
+		`{"name":"Mechanical Keyboard","price":"329.99","currency":"PLN","available":false}`)
 
 	if rec.Code != http.StatusOK || app.product.method != http.MethodPut || app.product.path != "/api/products/p1" ||
 		!strings.Contains(app.product.body, `"price":"329.99"`) {
@@ -261,11 +261,12 @@ func TestInvalidBodies(t *testing.T) {
 		"array instead of obj": {`[{"name":"A"}]`, ""},
 		"null":                 {`null`, ""},
 		"trailing data":        {`{"name":"A"} {"name":"B"}`, ""},
-		"amount as number":     {`{"name":"A","price":{"amount":349.99,"currency":"PLN"}}`, "price.amount"},
-		"price as string":      {`{"name":"A","price":"349.99"}`, "price"},
+		"price as number":      {`{"name":"A","price":349.99,"currency":"PLN"}`, "price"},
+		"price as object":      {`{"name":"A","price":{"amount":"349.99"},"currency":"PLN"}`, "price"},
+		"currency as number":   {`{"name":"A","price":"1.00","currency":985}`, "currency"},
 		"available as string":  {`{"name":"A","available":"yes"}`, "available"},
-		"amount not a decimal": {`{"name":"A","price":{"amount":"12,50","currency":"PLN"}}`, "price.amount"},
-		"amount with exponent": {`{"name":"A","price":{"amount":"1e3","currency":"PLN"}}`, "price.amount"},
+		"price not a decimal":  {`{"name":"A","price":"12,50","currency":"PLN"}`, "price"},
+		"price with exponent":  {`{"name":"A","price":"1e3","currency":"PLN"}`, "price"},
 	}
 	for name, tt := range tests {
 		for _, method := range []string{http.MethodPost, http.MethodPut} {
@@ -311,12 +312,12 @@ func TestBusinessValidationIsLeftToProductService(t *testing.T) {
 "details":[{"field":"price","message":"must be greater than or equal to 0"},{"field":"name","message":"must not be blank"}]}`))
 
 	// Structurally valid, but negative and without a name: only the Product Service decides.
-	rec := app.do(t, http.MethodPost, "/api/products", `{"price":{"amount":"-1.00","currency":"PLN"}}`)
+	rec := app.do(t, http.MethodPost, "/api/products", `{"price":"-1.00","currency":"PLN"}`)
 
 	e := assertError(t, rec, http.StatusBadRequest, "VALIDATION_ERROR")
 	details := e["details"].([]any)
-	if details[0].(map[string]any)["field"] != "price.amount" || details[1].(map[string]any)["field"] != "name" {
-		t.Errorf("details = %v, want fields remapped to the BFF contract", details)
+	if details[0].(map[string]any)["field"] != "price" || details[1].(map[string]any)["field"] != "name" {
+		t.Errorf("details = %v, want the Product Service field names unchanged", details)
 	}
 	if app.product.callCount() != 1 {
 		t.Errorf("Product Service called %d times, want 1", app.product.callCount())
@@ -388,7 +389,7 @@ func TestProductServiceTimeout(t *testing.T) {
 	app := newTestApp(t, fake.server.URL, 100*time.Millisecond)
 
 	start := time.Now()
-	rec := app.do(t, http.MethodPost, "/api/products", `{"name":"A","price":{"amount":"1.00","currency":"PLN"},"available":true}`)
+	rec := app.do(t, http.MethodPost, "/api/products", `{"name":"A","price":"1.00","currency":"PLN","available":true}`)
 
 	assertError(t, rec, http.StatusGatewayTimeout, "SERVICE_UNAVAILABLE")
 	if time.Since(start) > 2*time.Second {

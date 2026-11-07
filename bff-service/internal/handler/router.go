@@ -12,6 +12,7 @@ import (
 // Deps are the services the HTTP layer needs.
 type Deps struct {
 	Products  *service.Products
+	Orders    *service.Orders
 	Readiness *service.Readiness
 	Logger    *slog.Logger
 }
@@ -20,6 +21,7 @@ type Deps struct {
 // chain recover → request ID → access log.
 func NewRouter(d Deps) http.Handler {
 	products := &productHandler{products: d.Products, logger: d.Logger}
+	orders := &orderHandler{orders: d.Orders, logger: d.Logger}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", Health)
@@ -29,6 +31,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/products/{id}", products.get)
 	mux.HandleFunc("PUT /api/products/{id}", products.update)
 	mux.HandleFunc("DELETE /api/products/{id}", products.delete)
+	mux.HandleFunc("GET /api/orders", orders.list)
+	mux.HandleFunc("POST /api/orders", orders.create)
+	mux.HandleFunc("GET /api/orders/{id}", orders.get)
+	mux.HandleFunc("POST /api/orders/{id}/cancel", orders.cancel)
 
 	return middleware.Chain(jsonFallback(mux, d.Logger),
 		middleware.Recover(d.Logger),

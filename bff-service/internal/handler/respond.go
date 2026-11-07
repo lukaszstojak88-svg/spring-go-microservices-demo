@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"time"
 
 	"bff-service/internal/middleware"
@@ -17,6 +18,15 @@ import (
 
 // maxRequestBytes limits the size of a request body.
 const maxRequestBytes = 1 << 20
+
+// arrayIndex matches the ".0" index segments of encoding/json field paths.
+var arrayIndex = regexp.MustCompile(`\.(\d+)`)
+
+// fieldPath turns "items.0.quantity" into "items[0].quantity", the notation used by the
+// downstream services, so clients see one naming style in validation details.
+func fieldPath(jsonPath string) string {
+	return arrayIndex.ReplaceAllString(jsonPath, "[$1]")
+}
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -83,8 +93,8 @@ func decodeJSONObject(w http.ResponseWriter, r *http.Request, dst any) *service.
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) && typeErr.Field != "" {
 			return validationError("Request validation failed", model.FieldDetail{
-				Field:   typeErr.Field,
-				Message: "must be a JSON " + jsonTypeName(typeErr.Type.Kind().String()),
+				Field:   fieldPath(typeErr.Field),
+				Message: "must be " + jsonTypeName(typeErr.Type.Kind().String()),
 			})
 		}
 		return validationError("Malformed JSON request body")
@@ -92,17 +102,20 @@ func decodeJSONObject(w http.ResponseWriter, r *http.Request, dst any) *service.
 	return nil
 }
 
+// jsonTypeName describes the expected JSON type of a Go field kind.
 func jsonTypeName(goKind string) string {
 	switch goKind {
 	case "string":
-		return "string"
+		return "a JSON string"
 	case "bool":
-		return "boolean"
+		return "a JSON boolean"
 	case "struct", "map":
-		return "object"
+		return "a JSON object"
 	case "slice", "array":
-		return "array"
+		return "a JSON array"
+	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
+		return "an integer"
 	default:
-		return "number"
+		return "a JSON number"
 	}
 }

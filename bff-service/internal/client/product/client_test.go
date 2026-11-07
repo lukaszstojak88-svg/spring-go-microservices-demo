@@ -305,6 +305,38 @@ func TestList_RejectsPageWithoutContentOrIncompleteItems(t *testing.T) {
 	}
 }
 
+func TestLookup_SendsIDsInOneCall(t *testing.T) {
+	s := newStub(t, jsonResponse(200, `{"products":[`+keyboardJSON+`],"missingIds":["p2"]}`))
+
+	resp, err := New(s.server.URL, time.Second).Lookup(ctxWithID(t), []string{"p1", "p2"})
+
+	if err != nil || len(resp.Products) != 1 || resp.Products[0].ID != "p1" || len(resp.MissingIDs) != 1 {
+		t.Fatalf("resp = %+v, err = %v", resp, err)
+	}
+	if s.method != http.MethodPost || s.path != "/api/products/lookup" || s.body != `{"ids":["p1","p2"]}` {
+		t.Errorf("request = %s %s %s", s.method, s.path, s.body)
+	}
+	if s.calls.Load() != 1 || s.header.Get("X-Request-Id") != "req-abc" {
+		t.Errorf("calls = %d, request id = %q", s.calls.Load(), s.header.Get("X-Request-Id"))
+	}
+}
+
+func TestLookup_RejectsIncompleteResponse(t *testing.T) {
+	for name, body := range map[string]string{
+		"no missingIds":   `{"products":[]}`,
+		"no products":     `{"missingIds":[]}`,
+		"incomplete item": `{"products":[{"id":"p1"}],"missingIds":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStub(t, jsonResponse(200, body))
+
+			_, err := New(s.server.URL, time.Second).Lookup(t.Context(), []string{"p1"})
+
+			wantKind(t, err, client.KindInvalidResponse)
+		})
+	}
+}
+
 func TestReady(t *testing.T) {
 	up := newStub(t, jsonResponse(200, `{"status":"UP"}`))
 	if err := New(up.server.URL, time.Second).Ready(t.Context()); err != nil || up.path != "/actuator/health/readiness" {

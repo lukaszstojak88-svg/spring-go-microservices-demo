@@ -2,19 +2,14 @@ package model
 
 // ---- Client-facing contract (BFF API) ----
 
-// Money is an amount with its currency. The amount is a decimal string and is never converted
-// to a floating-point number.
-type Money struct {
-	Amount   string `json:"amount"`
-	Currency string `json:"currency"`
-}
-
-// Product is the client-facing product representation.
+// Product is the client-facing product representation. The price is a decimal string in the
+// separate currency field; it is never converted to a floating-point number.
 type Product struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description *string `json:"description"`
-	Price       Money   `json:"price"`
+	Price       string  `json:"price"`
+	Currency    string  `json:"currency"`
 	Available   bool    `json:"available"`
 	CreatedAt   string  `json:"createdAt"`
 	UpdatedAt   string  `json:"updatedAt"`
@@ -29,19 +24,14 @@ type ProductPage struct {
 	TotalPages    int       `json:"totalPages"`
 }
 
-// MoneyInput is the price part of a create/update request. Pointers keep "missing" distinct
-// from "empty", so the Product Service can report required fields.
-type MoneyInput struct {
-	Amount   *string `json:"amount"`
-	Currency *string `json:"currency"`
-}
-
-// ProductWrite is the client-facing body of POST and PUT /api/products.
+// ProductWrite is the client-facing body of POST and PUT /api/products. Pointers keep "missing"
+// distinct from "empty", so the Product Service can report required fields.
 type ProductWrite struct {
-	Name        *string     `json:"name"`
-	Description *string     `json:"description"`
-	Price       *MoneyInput `json:"price"`
-	Available   *bool       `json:"available"`
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	Price       *string `json:"price"`
+	Currency    *string `json:"currency"`
+	Available   *bool   `json:"available"`
 }
 
 // ---- Product Service contract (the BFF's own copy) ----

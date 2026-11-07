@@ -156,17 +156,24 @@ func (h *HTTP) Do(ctx context.Context, method, path string, query url.Values, bo
 		}
 		return nil
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
-		e := &Error{Service: h.service, Kind: KindStatus, Status: resp.StatusCode}
-		var apiErr model.ErrorResponse
-		if json.NewDecoder(limited).Decode(&apiErr) == nil {
-			e.Code, e.Message, e.Details = apiErr.Code, apiErr.Message, apiErr.Details
-		}
-		return e
+		return h.statusError(KindStatus, resp.StatusCode, limited)
 	case resp.StatusCode >= 500:
-		return &Error{Service: h.service, Kind: KindUnavailable, Status: resp.StatusCode}
+		// The body is parsed too: e.g. the Order Service reports 503 PRODUCT_SERVICE_UNAVAILABLE.
+		return h.statusError(KindUnavailable, resp.StatusCode, limited)
 	default:
 		return &Error{Service: h.service, Kind: KindInvalidResponse, Status: resp.StatusCode}
 	}
+}
+
+// statusError builds an error for a 4xx/5xx status and, when the body is the standard error
+// structure, keeps its code, message and details (for logs and selective mapping only).
+func (h *HTTP) statusError(kind Kind, status int, body io.Reader) *Error {
+	e := &Error{Service: h.service, Kind: kind, Status: status}
+	var apiErr model.ErrorResponse
+	if json.NewDecoder(body).Decode(&apiErr) == nil {
+		e.Code, e.Message, e.Details = apiErr.Code, apiErr.Message, apiErr.Details
+	}
+	return e
 }
 
 // Invalid builds a KindInvalidResponse error, used by clients that validate decoded bodies.

@@ -14,6 +14,7 @@ import (
 const (
 	serviceName   = "product-service"
 	productsPath  = "/api/products"
+	lookupPath    = "/api/products/lookup"
 	readinessPath = "/actuator/health/readiness"
 )
 
@@ -63,6 +64,25 @@ func (c *Client) Update(ctx context.Context, id string, body model.ServiceProduc
 // Delete removes a product.
 func (c *Client) Delete(ctx context.Context, id string) error {
 	return c.http.Do(ctx, http.MethodDelete, itemPath(id), nil, nil, nil)
+}
+
+// Lookup fetches several products in ONE batch call. Missing products are not an error: they
+// are listed in MissingIDs.
+func (c *Client) Lookup(ctx context.Context, ids []string) (model.ServiceLookupResponse, error) {
+	var resp model.ServiceLookupResponse
+	err := c.http.Do(ctx, http.MethodPost, lookupPath, nil, model.ServiceLookupRequest{IDs: ids}, &resp)
+	if err != nil {
+		return model.ServiceLookupResponse{}, err
+	}
+	if resp.Products == nil || resp.MissingIDs == nil {
+		return model.ServiceLookupResponse{}, c.http.Invalid("incomplete lookup response")
+	}
+	for _, p := range resp.Products {
+		if !p.IsComplete() {
+			return model.ServiceLookupResponse{}, c.http.Invalid("incomplete product in lookup response")
+		}
+	}
+	return resp, nil
 }
 
 // Ready checks the Product Service readiness probe.

@@ -99,11 +99,11 @@ go test ./...
 ## API
 
 The BFF is the only public API. Its contract is described in
-[`docs/bff-api.md`](docs/bff-api.md) (products so far; orders in a later stage).
+[`docs/bff-api.md`](docs/bff-api.md) (products, orders, health and readiness).
 
 ```bash
 curl -s -X POST http://localhost:8080/api/products \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Mechanical Keyboard","price":{"amount":"349.99","currency":"PLN"},"available":true}'
+  -d '{"name":"Mechanical Keyboard","price":"349.99","currency":"PLN","available":true}'
 curl -s 'http://localhost:8080/api/products?page=0&size=20&sort=price,asc'
 ```

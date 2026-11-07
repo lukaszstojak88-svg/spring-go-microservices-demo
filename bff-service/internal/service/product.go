@@ -35,7 +35,7 @@ func NewProducts(api ProductAPI, logger *slog.Logger) *Products {
 
 // List returns a page of products.
 func (s *Products) List(ctx context.Context, query url.Values) (model.ProductPage, error) {
-	page, err := s.api.List(ctx, forwardedQuery(query))
+	page, err := s.api.List(ctx, pick(query, listParams))
 	if err != nil {
 		return model.ProductPage{}, s.mapError(ctx, err)
 	}
@@ -88,7 +88,7 @@ func (s *Products) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Products) mapError(ctx context.Context, err error) *Error {
-	return mapDownstreamError(ctx, s.logger, err, productField)
+	return mapDownstreamError(ctx, s.logger, err, errorPolicy{})
 }
 
 // ToClientProduct converts the Product Service representation into the client contract.
@@ -97,7 +97,8 @@ func ToClientProduct(p model.ServiceProduct) model.Product {
 		ID:          p.ID,
 		Name:        p.Name,
 		Description: p.Description,
-		Price:       model.Money{Amount: p.Price, Currency: p.Currency},
+		Price:       p.Price,
+		Currency:    p.Currency,
 		Available:   p.Available,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
@@ -107,33 +108,19 @@ func ToClientProduct(p model.ServiceProduct) model.Product {
 // ToServiceWrite converts a client create/update body into the Product Service contract.
 // Missing values stay null so the Product Service reports them.
 func ToServiceWrite(w model.ProductWrite) model.ServiceProductWrite {
-	out := model.ServiceProductWrite{
+	return model.ServiceProductWrite{
 		Name:        w.Name,
 		Description: w.Description,
+		Price:       w.Price,
+		Currency:    w.Currency,
 		Available:   w.Available,
 	}
-	if w.Price != nil {
-		out.Price = w.Price.Amount
-		out.Currency = w.Price.Currency
-	}
-	return out
 }
 
-// productField maps Product Service field names in validation details to the client contract.
-func productField(field string) string {
-	switch field {
-	case "price":
-		return "price.amount"
-	case "currency":
-		return "price.currency"
-	default:
-		return field
-	}
-}
-
-func forwardedQuery(query url.Values) url.Values {
+// pick keeps only the given query parameters.
+func pick(query url.Values, keys []string) url.Values {
 	out := url.Values{}
-	for _, key := range listParams {
+	for _, key := range keys {
 		if values, ok := query[key]; ok {
 			out[key] = values
 		}
